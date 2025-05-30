@@ -3,383 +3,436 @@ import pandas as pd
 import numpy as np
 import os
 import re
-from typing import Dict
+from typing import Dict, List, Tuple
 
-def load_default_weights(file_path: str = "data/weight/weight_default.csv") -> Dict[str, float]:
-    """Load default weights from CSV file where criteria are headers and weights are in the first data row."""
+# --- Konstanta dan Konfigurasi Dasar ---
+DEFAULT_WEIGHT_FILE_PATH = "data/weight/weight_default.csv" # Path default untuk file bobot
+CUSTOM_WEIGHT_SAVE_PATH = "data/weight/weight_custom.csv" # Path untuk menyimpan bobot kustom
+
+CRITERION_DESCRIPTIONS = {
+    'C1_GPA': 'Grade Point Average - Academic performance indicator',
+    'C2_Certificates': 'Academic certificates and achievements',
+    'C3_ParentIncomeIDR': 'Parent income in Indonesian Rupiah (financial need)',
+    'C4_Dependents': 'Number of family dependents',
+    'C5_OrgScore': 'Organizational involvement score',
+    'C6_VolunteerEvents': 'Volunteer activities and community service',
+    'C7_LetterScore': 'Recommendation letter quality score',
+    'C8_InterviewScore': 'Interview performance score',
+    'C9_DocComplete': 'Document completeness score',
+    'C10_OnTime': 'Application submission timeliness'
+}
+CRITERIA_LIST = list(CRITERION_DESCRIPTIONS.keys())
+RATING_OPTIONS = [1, 2, 3, 4, 5] # Opsi untuk rating bobot kustom
+
+# --- Functions ---
+
+def load_default_weights(file_path: str = DEFAULT_WEIGHT_FILE_PATH) -> Dict[str, float]:
+    """Memuat bobot default dari file CSV.
+    Kriteria diasumsikan sebagai header dan bobot berada di baris data pertama.
+    """
     fallback_weights = {
-        'C1_GPA': 0.1,
-        'C2_Certificates': 0.1,
-        'C3_ParentIncomeIDR': 0.1,
-        'C4_Dependents': 0.1,
-        'C5_OrgScore': 0.1,
-        'C6_VolunteerEvents': 0.1,
-        'C7_LetterScore': 0.1,
-        'C8_InterviewScore': 0.1,
-        'C9_DocComplete': 0.1,
+        'C1_GPA': 0.1, 'C2_Certificates': 0.1, 'C3_ParentIncomeIDR': 0.1,
+        'C4_Dependents': 0.1, 'C5_OrgScore': 0.1, 'C6_VolunteerEvents': 0.1,
+        'C7_LetterScore': 0.1, 'C8_InterviewScore': 0.1, 'C9_DocComplete': 0.1,
         'C10_OnTime': 0.1
     }
-    
     try:
         if os.path.exists(file_path):
             weights_df = pd.read_csv(file_path)
             if not weights_df.empty:
-                # Baris pertama dari DataFrame berisi bobot,
-                # dan nama kolom DataFrame adalah nama kriteria.
-                # Kita ambil baris pertama dan ubah menjadi dictionary.
+                # Ambil baris pertama dan konversi ke dictionary
                 weights_dict = weights_df.iloc[0].to_dict()
                 
-                # Pastikan semua nilai bobot adalah float
-                # (Meskipun pd.read_csv biasanya sudah mendeteksinya sebagai float jika hanya angka)
-                for key in weights_dict:
-                    try:
-                        weights_dict[key] = float(weights_dict[key])
-                    except ValueError:
-                        st.error(f"Nilai bobot untuk '{key}' di file CSV tidak valid: {weights_dict[key]}. Harap periksa file.")
-                        # Anda bisa memutuskan untuk mengembalikan dict kosong atau fallback di sini jika ada error konversi
-                        return fallback_weights # Fallback jika ada error konversi nilai
-                return weights_dict
+                # Pastikan semua kriteria yang diharapkan ada dan nilainya float
+                processed_weights = {}
+                for criterion_code in CRITERIA_LIST: # Iterasi berdasarkan CRITERIA_LIST untuk konsistensi
+                    if criterion_code in weights_dict:
+                        try:
+                            processed_weights[criterion_code] = float(weights_dict[criterion_code])
+                        except ValueError:
+                            st.error(f"Nilai bobot untuk '{criterion_code}' di file CSV ('{weights_dict[criterion_code]}') tidak valid. Menggunakan fallback.")
+                            return fallback_weights
+                    else:
+                        st.warning(f"Kriteria '{criterion_code}' tidak ditemukan di file CSV. Menggunakan fallback.")
+                        return fallback_weights # Jika ada kriteria penting yang hilang
+                return processed_weights
             else:
                 st.warning(f"File CSV '{file_path}' kosong. Menggunakan fallback weights.")
         else:
             st.info(f"File CSV '{file_path}' tidak ditemukan. Menggunakan fallback weights.")
-        
-        # Fallback default weights jika file tidak ada, kosong, atau ada error yang tidak ditangani di atas
+        return fallback_weights
+    except pd.errors.EmptyDataError: # Spesifik untuk file CSV kosong yang tidak bisa diparsing
+        st.warning(f"File CSV '{file_path}' kosong atau format tidak benar. Menggunakan fallback weights.")
         return fallback_weights
     except Exception as e:
         st.error(f"Error memuat bobot default dari file '{file_path}': {str(e)}. Menggunakan fallback weights.")
-        # Fallback jika ada exception lain yang tidak terduga
         return fallback_weights
 
 def validate_weights(weights: Dict[str, float]) -> bool:
-    """Validate that weights sum to 1.0"""
-    if not weights: # Handle empty weights case
+    """Validasi apakah total bobot adalah 1.0 (dengan toleransi)."""
+    if not weights:
         return False
     total = sum(weights.values())
-    return abs(total - 1.0) < 0.001  # Allow small floating point errors
+    return abs(total - 1.0) < 0.001
 
 def normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
-    """Normalize weights to sum to 1.0"""
-    if not weights: # Handle empty weights case
+    """Normalisasi bobot sehingga totalnya menjadi 1.0."""
+    if not weights:
         return {}
     total = sum(weights.values())
     if total > 0:
         return {k: v / total for k, v in weights.items()}
-    return weights
+    return weights # Kembalikan bobot asli jika totalnya 0 untuk menghindari error
 
+# --- Fungsi Helper UI ---
+
+def format_criterion_label(criterion_code: str) -> str:
+    """Format label kriteria agar lebih mudah dibaca (misal, 'GPA' dari 'C1_GPA')."""
+    return re.sub(r'C[0-9]+_?', '', criterion_code).replace('_', ' ')
+
+def display_weights_table_and_chart(
+    weights_to_display: Dict[str, float], 
+    is_normalized: bool, 
+    title_prefix: str = "Current"
+):
+    """Menampilkan tabel, chart, dan metrik untuk bobot yang diberikan."""
+    st.markdown(f"### 📊 {title_prefix} Weights")
+    
+    col_table, col_visualization = st.columns([2, 1])
+
+    with col_table:
+        df_data = []
+        total_for_percentage = sum(weights_to_display.values()) if not is_normalized and sum(weights_to_display.values()) > 0 else 1.0
+        
+        for crit, w in weights_to_display.items():
+            percentage_val = (w / total_for_percentage * 100) if total_for_percentage != 0 else 0
+            df_data.append({
+                'Criterion': crit,
+                'Weight': f"{w:.3f}" if isinstance(w, float) and w < 1 else str(w), # Tampilkan rating mentah sebagai int
+                'Percentage': f"{percentage_val:.1f}%" + (" (relative)" if not is_normalized and total_for_percentage != 1.0 else ""),
+                'Description': CRITERION_DESCRIPTIONS.get(crit, 'N/A')
+            })
+        weights_df = pd.DataFrame(df_data)
+        st.dataframe(weights_df, use_container_width=True, hide_index=True)
+
+        if is_normalized: # Validasi hanya relevan jika kita mengharapkan normalisasi
+            if validate_weights(weights_to_display):
+                st.success("✅ Weights are properly normalized (sum ≈ 1.0)")
+            else: # Seharusnya tidak terjadi jika is_normalized=True dan berasal dari proses normalisasi
+                st.warning(f"⚠️ Weights sum to {sum(weights_to_display.values()):.3f}, but expected to be normalized.")
+        # Tidak menampilkan validasi sum untuk bobot default yang mungkin tidak dinormalisasi dari file
+
+    with col_visualization:
+        st.markdown("**📈 Weight Distribution**")
+        chart_data = {format_criterion_label(k): v for k, v in weights_to_display.items()}
+        if chart_data:
+            chart_df = pd.DataFrame(list(chart_data.items()), columns=['Criterion', 'Weight'])
+            st.bar_chart(chart_df.set_index('Criterion'), height=300)
+            
+            weight_values = list(weights_to_display.values())
+            if weight_values:
+                st.metric("Highest Weight/Rating", f"{max(weight_values):.3f}" if isinstance(max(weight_values), float) and max(weight_values) < 1 else str(max(weight_values)))
+                st.metric("Lowest Weight/Rating", f"{min(weight_values):.3f}" if isinstance(min(weight_values), float) and min(weight_values) < 1 else str(min(weight_values)))
+                st.metric("Average Weight/Rating", f"{np.mean(weight_values):.3f}" if isinstance(np.mean(weight_values), float) and np.mean(weight_values) < 1 else f"{np.mean(weight_values):.1f}")
+        else:
+            st.caption("No valid weights to display in chart.")
+
+def display_default_weights_config():
+    """Menampilkan UI untuk konfigurasi bobot default."""
+    st.info("🔍 **Default Weights Mode**: Load predefined weights from a CSV configuration file or use fallback defaults.")
+
+    st.markdown("### 📂 File Configuration")
+    col_file1, col_file2 = st.columns([3, 1])
+    
+    
+    default_file_path_key = "default_weight_file_path_ui" # Key unik untuk text_input
+    if default_file_path_key not in st.session_state:
+        st.session_state[default_file_path_key] = DEFAULT_WEIGHT_FILE_PATH
+
+    with col_file1:
+        st.session_state[default_file_path_key] = st.text_input(
+            "Weight Data File Path:",
+            value=st.session_state[default_file_path_key],
+            help=f"Path to CSV. Headers are criteria, first row is weights. Default: {DEFAULT_WEIGHT_FILE_PATH}"
+        )
+    with col_file2:
+        st.write("") # Spacer
+        st.write("") # Spacer
+        if st.button("🔄 Load Default Weights", type="primary", use_container_width=True, key="load_default_btn"):
+            with st.spinner("Loading default weights..."):
+                loaded_w = load_default_weights(st.session_state[default_file_path_key])
+                st.session_state.weights = loaded_w # Selalu update, bahkan jika fallback
+                if loaded_w and loaded_w != load_default_weights(""): # Cek jika bukan fallback karena file tidak ada/kosong
+                    # Cek apakah file yang dimuat benar-benar menghasilkan bobot yang valid dan bukan fallback
+                    # Ini agak rumit karena load_default_weights sendiri sudah mengembalikan fallback
+                    # Kita bisa asumsikan jika path ada dan file tidak kosong, maka itu sukses
+                    if os.path.exists(st.session_state[default_file_path_key]) and os.path.getsize(st.session_state[default_file_path_key]) > 0:
+                         st.success("✅ Default weights loaded successfully from file!")
+                    # Pesan info/warning sudah ditangani di dalam load_default_weights
+    
+    # Inisialisasi bobot default jika belum ada (misalnya saat pertama kali tab dibuka)
+    if not st.session_state.get('weights') or st.session_state.weight_method == 'default':
+        # Jika weights kosong atau metode adalah default dan weights tidak sesuai dengan file path saat ini
+        # (misalnya, path diubah tapi belum diklik load), coba load.
+        current_file_path_in_ui = st.session_state.get(default_file_path_key, DEFAULT_WEIGHT_FILE_PATH)
+        # Hanya load jika belum ada weights atau jika file yang di-load sebelumnya berbeda
+        # Ini untuk menghindari reload terus menerus jika file tidak valid dan fallback digunakan
+        # Untuk simplisitas, kita load jika weights kosong di mode default
+        if not st.session_state.get('weights'):
+            st.session_state.weights = load_default_weights(current_file_path_in_ui)
+
+
+    if st.session_state.get('weights'):
+        # Bobot default dari file mungkin tidak selalu ternormalisasi, jadi kita cek saja
+        is_normalized_from_file = validate_weights(st.session_state.weights)
+        display_weights_table_and_chart(st.session_state.weights, is_normalized_from_file, title_prefix="Default")
+        if not is_normalized_from_file:
+            st.warning(f"⚠️ Default weights from file sum to {sum(st.session_state.weights.values()):.3f}. They may need review if intended for direct DSS use without normalization step elsewhere.")
+    else:
+        st.warning("No default weights currently loaded. Check file path or fallback definitions.")
+
+def display_custom_weights_config():
+    """Menampilkan UI untuk konfigurasi bobot kustom."""
+    st.info("🎯 **Custom Weights Mode**: Manually adjust the importance of each criterion using selection boxes (1 = Least Important, 5 = Most Important). Weights should be normalized to sum to 1.0 for proper analysis.")
+
+    # Sinkronisasi raw_custom_ratings jika daftar kriteria berubah
+    if set(st.session_state.raw_custom_ratings.keys()) != set(CRITERIA_LIST):
+        current_raw_ratings = st.session_state.raw_custom_ratings.copy()
+        st.session_state.raw_custom_ratings = {c: current_raw_ratings.get(c, 3) for c in CRITERIA_LIST}
+
+    st.markdown("### ⚖️ Adjust Criterion Importance Ratings")
+    st.markdown("*Use the selection boxes below to set the importance rating for each criterion (1 = Least Important, 5 = Most Important)*")
+
+    ratings_before_ui = st.session_state.raw_custom_ratings.copy()
+    temp_raw_ratings_from_ui = {}
+    mid_point = len(CRITERIA_LIST) // 2
+
+    input_col1, input_col2 = st.columns(2)
+    with input_col1:
+        st.markdown(f"**Criteria 1-{mid_point}**")
+        for criterion in CRITERIA_LIST[:mid_point]:
+            temp_raw_ratings_from_ui[criterion] = st.selectbox(
+                label=f"{format_criterion_label(criterion)}:",
+                options=RATING_OPTIONS,
+                index=RATING_OPTIONS.index(st.session_state.raw_custom_ratings.get(criterion, 3)),
+                help=CRITERION_DESCRIPTIONS[criterion],
+                key=f"select_{criterion}"
+            )
+            st.caption(CRITERION_DESCRIPTIONS[criterion])
+    with input_col2:
+        st.markdown(f"**Criteria {mid_point + 1}-{len(CRITERIA_LIST)}**")
+        for criterion in CRITERIA_LIST[mid_point:]:
+            temp_raw_ratings_from_ui[criterion] = st.selectbox(
+                label=f"{format_criterion_label(criterion)}:",
+                options=RATING_OPTIONS,
+                index=RATING_OPTIONS.index(st.session_state.raw_custom_ratings.get(criterion, 3)),
+                help=CRITERION_DESCRIPTIONS[criterion],
+                key=f"select_{criterion}"
+            )
+            st.caption(CRITERION_DESCRIPTIONS[criterion])
+    
+    st.session_state.raw_custom_ratings = temp_raw_ratings_from_ui.copy()
+
+    if ratings_before_ui != st.session_state.raw_custom_ratings:
+        st.session_state.custom_weights_are_normalized = False
+
+    if not st.session_state.custom_weights_are_normalized:
+        st.session_state.weights = st.session_state.raw_custom_ratings.copy()
+    
+    # Tampilkan ringkasan dan validasi untuk bobot kustom
+    display_weight_summary_and_validation(st.session_state.weights, st.session_state.custom_weights_are_normalized)
+
+    # Bagian Normalisasi
+    if not st.session_state.custom_weights_are_normalized:
+        st.markdown("### 🔄 Weight Normalization")
+        current_sum = sum(st.session_state.weights.values()) if st.session_state.weights else 0
+        st.warning(f"⚠️ Current sum of ratings is {int(current_sum)}. For proper analysis, weights should sum to 1.0.")
+        
+        norm_col1, norm_col2 = st.columns([1, 3])
+        with norm_col1:
+            if st.button("🔄 Normalize Weights", type="primary", use_container_width=True, key="normalize_custom_btn"):
+                normalized_w = normalize_weights(st.session_state.raw_custom_ratings)
+                st.session_state.weights = normalized_w
+                st.session_state.custom_weights_are_normalized = True
+                st.success("✅ Weights have been normalized!")
+                st.rerun()
+        with norm_col2:
+            st.info("Normalization will proportionally adjust all ratings so they sum to exactly 1.0.")
+
+def display_weight_summary_and_validation(current_weights: Dict[str, float], is_normalized_flag: bool):
+    """Menampilkan ringkasan bobot (tabel, chart, statistik) untuk mode kustom."""
+    st.markdown("---")
+    st.markdown("### 📊 Weight Summary & Validation")
+    
+    total_weight_val = sum(current_weights.values()) if current_weights else 0
+
+    summary_col_table, summary_col_visualization, summary_col_stats = st.columns([2, 1, 1])
+    
+    with summary_col_table:
+        st.markdown("**Current Values**")
+        summary_df_data = []
+        for criterion, weight_val in current_weights.items():
+            is_raw_int_rating = isinstance(weight_val, int) and weight_val in RATING_OPTIONS and not is_normalized_flag
+            display_val = str(weight_val) if is_raw_int_rating else f"{weight_val:.3f}"
+            
+            percentage = "N/A"
+            if is_normalized_flag:
+                percentage = f"{weight_val * 100:.1f}%"
+            elif total_weight_val > 0:
+                percentage = f"{(weight_val / total_weight_val * 100):.1f}% (raw)"
+            else:
+                percentage = "0.0% (raw)"
+
+            summary_df_data.append({
+                'Criterion': format_criterion_label(criterion),
+                'Value/Weight': display_val,
+                'Percentage': percentage
+            })
+        summary_df = pd.DataFrame(summary_df_data)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    with summary_col_visualization:
+        st.markdown("**📈 Visualization**")
+        chart_data = {format_criterion_label(k): v for k, v in current_weights.items()}
+        if chart_data:
+            chart_df = pd.DataFrame(list(chart_data.items()), columns=['Criterion', 'Weight'])
+            st.bar_chart(chart_df.set_index('Criterion'), height=250)
+        else:
+            st.caption("No data for chart.")
+
+    with summary_col_stats:
+        st.markdown("**📊 Statistics**")
+        if is_normalized_flag:
+            st.metric("Total Normalized Weight", f"{total_weight_val:.3f}")
+            st.metric("Total Percentage", f"{total_weight_val*100:.1f}%")
+            st.success("✅ Normalized")
+        else:
+            st.metric("Sum of Ratings", f"{int(total_weight_val)}")
+            st.warning("⚠️ Not Normalized")
+        
+        weights_values_list = list(current_weights.values()) if current_weights else []
+        if weights_values_list:
+            max_v = max(weights_values_list)
+            min_v = min(weights_values_list)
+            mean_v = np.mean(weights_values_list)
+            st.metric("Highest", str(int(max_v)) if isinstance(max_v, int) and not is_normalized_flag else f"{max_v:.3f}")
+            st.metric("Lowest", str(int(min_v)) if isinstance(min_v, int) and not is_normalized_flag else f"{min_v:.3f}")
+            st.metric("Average", f"{mean_v:.1f}" if not is_normalized_flag else f"{mean_v:.3f}")
+
+def display_action_buttons():
+    """Menampilkan tombol aksi utama (Save, Continue)."""
+    st.markdown("---")
+    st.markdown("### 🎬 Actions")
+    
+    # Membuat direktori jika belum ada (untuk penyimpanan CSV)
+    if not os.path.exists("data/weight"):
+        try:
+            os.makedirs("data/weight")
+        except OSError as e:
+            st.error(f"Gagal membuat direktori 'data/weight': {e}. Penyimpanan CSV mungkin gagal.")
+
+
+    col_save, col_continue = st.columns(2)
+
+    with col_save:
+        if st.button("💾 Save Weights", type="primary", use_container_width=True, key="save_weights_btn"):
+            if st.session_state.weights:
+                if st.session_state.weight_method == 'custom' and not st.session_state.custom_weights_are_normalized:
+                    st.warning("⚠️ Saving unnormalized custom ratings. Consider normalizing first for DSS calculations.")
+                
+                try:
+                    # Simpan sebagai DataFrame dengan satu baris, di mana header adalah kriteria
+                    df_to_save = pd.DataFrame([st.session_state.weights])
+                    save_path = CUSTOM_WEIGHT_SAVE_PATH if st.session_state.weight_method == 'custom' else DEFAULT_WEIGHT_FILE_PATH # Atau path lain untuk default yang diedit
+                    
+                    # Jika menyimpan bobot default (misalnya setelah diedit atau hanya ingin menyimpan ulang),
+                    # mungkin ingin path yang berbeda atau konfirmasi. Untuk saat ini, custom path.
+                    if st.session_state.weight_method == 'default':
+                        save_path = st.session_state.get("default_weight_file_path_ui", DEFAULT_WEIGHT_FILE_PATH)
+                        st.info(f"Menyimpan bobot default ke: {save_path}")
+
+
+                    df_to_save.to_csv(save_path, index=False)
+                    st.success(f"✅ Weights saved successfully to '{save_path}'! You can continue.")
+                except Exception as e:
+                    st.error(f"❌ Failed to save weights: {str(e)}")
+            else:
+                st.error("❌ No weights to save.")
+
+    with col_continue:
+        if st.button("➡️ Continue", type="primary", use_container_width=True, key="continue_btn"):
+            weights_are_valid_for_dss = validate_weights(st.session_state.weights)
+            
+            if st.session_state.weight_method == 'custom':
+                # Untuk custom, harus ternormalisasi secara eksplisit melalui UI
+                weights_are_valid_for_dss = weights_are_valid_for_dss and st.session_state.custom_weights_are_normalized
+            # Untuk default, kita asumsikan jika validate_weights True, itu cukup,
+            # karena normalisasi mungkin terjadi di luar skrip ini atau memang disengaja.
+
+            if st.session_state.weights and weights_are_valid_for_dss:
+                st.success("✅ Proceeding to analysis with current weights...")
+                # Logika navigasi atau pemrosesan selanjutnya bisa ditambahkan di sini
+            elif not st.session_state.weights:
+                st.error("❌ No weights configured. Please set weights first.")
+            else: # Bobot ada tapi tidak valid/siap untuk DSS
+                if st.session_state.weight_method == 'custom':
+                    st.error("❌ Custom weights are not normalized. Please normalize them first.")
+                else: # Default weights not summing to 1
+                    st.error(f"❌ Default weights are not normalized (sum to {sum(st.session_state.weights.values()):.3f}). Please review or ensure this is intended.")
+
+# --- Fungsi Utama Tab ---
 
 def weight_tab():
-    # Header
-    st.header("Criterion Weighting Configuration")
-    st.markdown("Configure the importance weights for each evaluation criterion used in the scholarship selection process.")
-    st.markdown("---")
-
-    criterion_descriptions = {
-        'C1_GPA': 'Grade Point Average - Academic performance indicator',
-        'C2_Certificates': 'Academic certificates and achievements',
-        'C3_ParentIncomeIDR': 'Parent income in Indonesian Rupiah (financial need)',
-        'C4_Dependents': 'Number of family dependents',
-        'C5_OrgScore': 'Organizational involvement score',
-        'C6_VolunteerEvents': 'Volunteer activities and community service',
-        'C7_LetterScore': 'Recommendation letter quality score',
-        'C8_InterviewScore': 'Interview performance score',
-        'C9_DocComplete': 'Document completeness score',
-        'C10_OnTime': 'Application submission timeliness'
-    }
-    criteria_list = list(criterion_descriptions.keys())
-
-    # Initialize session state
+    """Fungsi utama untuk menampilkan tab konfigurasi bobot."""
+    
+    # Inisialisasi session state jika belum ada
     if 'weights' not in st.session_state:
-        st.session_state.weights = {}
+        # Load bobot default saat pertama kali jika metode default, atau kosongkan untuk custom
+        if st.session_state.get('weight_method', 'default') == 'default':
+            st.session_state.weights = load_default_weights()
+        else:
+            st.session_state.weights = {} # Akan diisi oleh raw_custom_ratings
+            
     if 'weight_method' not in st.session_state:
         st.session_state.weight_method = 'default'
     if 'raw_custom_ratings' not in st.session_state:
-        st.session_state.raw_custom_ratings = {criterion: 3 for criterion in criteria_list}
-    
-    # Flag for normalization status of custom weights
+        st.session_state.raw_custom_ratings = {criterion: 3 for criterion in CRITERIA_LIST}
     if 'custom_weights_are_normalized' not in st.session_state:
         st.session_state.custom_weights_are_normalized = False
+    if "default_weight_file_path_ui" not in st.session_state: # Untuk text input UI
+        st.session_state.default_weight_file_path_ui = DEFAULT_WEIGHT_FILE_PATH
+
 
     st.subheader("🎯 Select Weighting Method")
-    col_method1, col_method2 = st.columns(2)
-
-    with col_method1:
-        if st.button("📁 Default Weights",
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        if st.button("📁 Default Weights", key="btn_default_method",
                       type="primary" if st.session_state.weight_method == 'default' else "secondary",
                       use_container_width=True):
-            st.session_state.weight_method = 'default'
-            st.session_state.custom_weights_are_normalized = False # Reset flag
-            # Load default weights immediately upon switching
-            st.session_state.weights = load_default_weights(st.session_state.get("default_weight_file_path", "data/weight/weight_default.csv"))
-            if not st.session_state.weights: # If loading from specific path fails, try fallback
-                 st.session_state.weights = load_default_weights("")
-            st.rerun()
-
-    with col_method2:
-        if st.button("🎛️ Custom Weights",
+            if st.session_state.weight_method != 'default': # Hanya jika ada perubahan
+                st.session_state.weight_method = 'default'
+                st.session_state.custom_weights_are_normalized = False
+                st.session_state.weights = load_default_weights(st.session_state.default_weight_file_path_ui)
+                st.rerun()
+    with col_m2:
+        if st.button("🎛️ Custom Weights", key="btn_custom_method",
                       type="primary" if st.session_state.weight_method == 'custom' else "secondary",
                       use_container_width=True):
-            st.session_state.weight_method = 'custom'
-            # Ensure raw_custom_ratings are initialized
-            if not st.session_state.raw_custom_ratings or \
-               set(st.session_state.raw_custom_ratings.keys()) != set(criteria_list):
-                st.session_state.raw_custom_ratings = {criterion: 3 for criterion in criteria_list}
-            
-            # If not already normalized, or if switching to custom, weights should reflect raw ratings
-            if not st.session_state.custom_weights_are_normalized:
-                 st.session_state.weights = st.session_state.raw_custom_ratings.copy()
-            # If they ARE normalized, st.session_state.weights already has them.
-            st.rerun()
+            if st.session_state.weight_method != 'custom': # Hanya jika ada perubahan
+                st.session_state.weight_method = 'custom'
+                # Saat beralih ke custom, jika belum dinormalisasi, bobot harus mencerminkan rating mentah
+                if not st.session_state.custom_weights_are_normalized:
+                    st.session_state.weights = st.session_state.raw_custom_ratings.copy()
+                # Jika sudah dinormalisasi sebelumnya, biarkan st.session_state.weights (yang berisi nilai normalisasi)
+                st.rerun()
     st.markdown("---")
 
+    # Tampilkan konten berdasarkan metode yang dipilih
     if st.session_state.weight_method == 'default':
-        st.subheader("📁 Default Weights Configuration")
-        st.info("🔍 **Default Weights Mode**: Load predefined weights from a CSV configuration file or use fallback defaults.")
+        display_default_weights_config()
+    else: # 'custom'
+        display_custom_weights_config()
 
-        st.markdown("### 📂 File Configuration")
-        col_file1, col_file2 = st.columns([3, 1])
-        
-        default_file_path_key = "default_weight_file_path"
-        if default_file_path_key not in st.session_state:
-            st.session_state[default_file_path_key] = "data/weight/weight_default.csv"
+    # Tombol aksi selalu ditampilkan
+    display_action_buttons()
 
-        with col_file1:
-            st.session_state[default_file_path_key] = st.text_input(
-                "Weight Data File Path:",
-                value=st.session_state[default_file_path_key],
-                help="Path to the CSV file containing default weights (columns: 'criterion', 'weight')"
-            )
-        with col_file2:
-            st.write("")
-            st.write("")
-            if st.button("🔄 Load Default Weights", type="primary", use_container_width=True):
-                with st.spinner("Loading default weights..."):
-                    loaded_weights = load_default_weights(st.session_state[default_file_path_key])
-                    if loaded_weights:
-                        st.session_state.weights = loaded_weights
-                        st.success("✅ Default weights loaded successfully!")
-                    else:
-                        st.error("❌ Failed to load from file. Trying fallback.")
-                        st.session_state.weights = load_default_weights("") # Explicitly load fallback
-                        if st.session_state.weights:
-                             st.info("ℹ️ Using fallback default weights.")
-                        else:
-                             st.error("❌ Fallback default weights also failed to load.")
-
-
-        # If no weights are loaded yet (e.g., first time in default mode)
-        if not st.session_state.weights:
-            st.session_state.weights = load_default_weights(st.session_state[default_file_path_key])
-            if not st.session_state.weights: # If file load fails, try fallback
-                st.session_state.weights = load_default_weights("")
-                if st.session_state.weights and st.session_state.weight_method == 'default': # Show only if relevant
-                    st.toast("Loaded fallback default weights.", icon="ℹ️")
-
-
-        if st.session_state.weights:
-            st.markdown("### 📊 Current Default Weights")
-            # ... (bagian tampilan default weights tetap sama seperti kode Anda sebelumnya) ...
-            weight_col1, weight_col2 = st.columns([2, 1])
-            with weight_col1:
-                weights_df_display = pd.DataFrame([
-                    {
-                        'Criterion': criterion,
-                        'Weight': weight,
-                        'Percentage': f"{weight*100:.1f}%",
-                        'Description': criterion_descriptions.get(criterion, 'No description available')
-                    }
-                    for criterion, weight in st.session_state.weights.items() if criterion in criterion_descriptions
-                ])
-                st.dataframe(weights_df_display, use_container_width=True, hide_index=True)
-
-                if validate_weights(st.session_state.weights):
-                    st.success("✅ Weights are properly normalized (sum = 1.0)")
-                else:
-                    total = sum(st.session_state.weights.values()) if st.session_state.weights else 0
-                    st.warning(f"⚠️ Weights sum to {total:.3f}. Consider normalizing or checking the source file.")
-            with weight_col2:
-                st.markdown("**📈 Weight Distribution**")
-                weights_for_chart_data = {
-                    k.replace('C', '').replace('_', ' '): v 
-                    for k, v in st.session_state.weights.items() if k in criterion_descriptions
-                }
-                if weights_for_chart_data:
-                    weights_for_chart = pd.DataFrame(list(weights_for_chart_data.items()), columns=['Criterion', 'Weight'])
-                    
-                    weights_values = [v for k,v in st.session_state.weights.items() if k in criterion_descriptions]
-                    if weights_values:
-                        st.metric("Highest Weight", f"{max(weights_values):.3f}")
-                        st.metric("Lowest Weight", f"{min(weights_values):.3f}")
-                        st.metric("Average Weight", f"{np.mean(weights_values):.3f}")
-                else:
-                    st.caption("No valid weights to display in chart.")
-        else:
-            st.warning("No default weights currently loaded.")
-
-    else:  # custom weights
-        st.subheader("🎛️ Custom Weights Configuration")
-        st.info("🎯 **Custom Weights Mode**: Manually adjust the importance of each criterion using selection boxes (1 = Least Important, 5 = Most Important). Weights should be normalized to sum to 1.0 for proper analysis.")
-
-        if set(st.session_state.raw_custom_ratings.keys()) != set(criteria_list):
-            current_raw_ratings = st.session_state.raw_custom_ratings.copy()
-            st.session_state.raw_custom_ratings = {c: current_raw_ratings.get(c, 3) for c in criteria_list}
-
-        st.markdown("### ⚖️ Adjust Criterion Importance Ratings")
-        st.markdown("*Use the selection boxes below to set the importance rating for each criterion (1 = Least Important, 5 = Most Important)*")
-
-        # Store a copy of raw_custom_ratings from *before* rendering UI elements for comparison
-        ratings_before_ui = st.session_state.raw_custom_ratings.copy()
-        
-        temp_raw_ratings_from_ui = {}
-        mid_point = len(criteria_list) // 2
-        rating_options = [1, 2, 3, 4, 5]
-
-        # Create two columns for User input
-        input_col1, input_col2 = st.columns(2)
-        with input_col1:
-            st.markdown("**Criteria 1-5**")
-            for criterion in criteria_list[:mid_point]:
-                temp_raw_ratings_from_ui[criterion] = st.selectbox(
-                    label=f"{re.sub(r'C[0-9]+', '', criterion).replace('_', ' ')}:",
-                    options=rating_options,
-                    index=rating_options.index(st.session_state.raw_custom_ratings.get(criterion, 3)),
-                    help=criterion_descriptions[criterion],
-                    key=f"select_{criterion}"
-                )
-                st.caption(criterion_descriptions[criterion])
-        with input_col2:
-            st.markdown("**Criteria 6-10**")
-            for criterion in criteria_list[mid_point:]:
-                temp_raw_ratings_from_ui[criterion] = st.selectbox(
-                    # use regular expression to format criterion name
-                    label=f"{re.sub(r'C[0-9]+', '', criterion).replace('_', ' ')}:",
-                    options=rating_options,
-                    index=rating_options.index(st.session_state.raw_custom_ratings.get(criterion, 3)),
-                    help=criterion_descriptions[criterion],
-                    key=f"select_{criterion}"
-                )
-                st.caption(criterion_descriptions[criterion])
-        
-        st.session_state.raw_custom_ratings = temp_raw_ratings_from_ui.copy()
-
-        # If user changed any raw rating, then previous normalization (if any) is invalid
-        if ratings_before_ui != st.session_state.raw_custom_ratings:
-            st.session_state.custom_weights_are_normalized = False
-
-        # Update st.session_state.weights for display based on normalization flag
-        if not st.session_state.custom_weights_are_normalized:
-            st.session_state.weights = st.session_state.raw_custom_ratings.copy()
-        # Else: st.session_state.weights should already hold the normalized values from previous step
-
-        st.markdown("---")
-        st.markdown("### 📊 Weight Summary & Validation")
-        
-        current_weights_for_summary = st.session_state.weights
-        total_weight_val = sum(current_weights_for_summary.values()) if current_weights_for_summary else 0
-
-        summary_col1, summary_col2, summary_col3 = st.columns([2, 1, 1])
-        with summary_col1:
-            st.markdown("**Current Weight Values**")
-            # ... (logika dataframe summary tetap sama seperti kode Anda sebelumnya, pastikan menggunakan current_weights_for_summary) ...
-            summary_df_data = []
-            for criterion, weight_val in current_weights_for_summary.items():
-                is_raw_rating = isinstance(weight_val, int) and weight_val in rating_options and not st.session_state.custom_weights_are_normalized
-                display_weight = f"{weight_val}" if is_raw_rating else f"{weight_val:.3f}"
-                
-                # Calculate percentage
-                if st.session_state.custom_weights_are_normalized : # If normalized, percentage is weight * 100
-                    percentage = f"{weight_val * 100:.1f}%"
-                elif total_weight_val > 0 : # If raw and total is not zero, calculate relative percentage
-                    percentage = f"{(weight_val / total_weight_val * 100):.1f}% (raw)"
-                else: # Raw and total is zero
-                    percentage = "0.0% (raw)"
-
-                summary_df_data.append({
-                    'Criterion': criterion,
-                    'Value/Weight': display_weight,
-                    'Percentage': percentage
-                })
-            summary_df = pd.DataFrame(summary_df_data)
-            st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
-
-        with summary_col2:
-            # ... (logika chart tetap sama, gunakan current_weights_for_summary) ...
-            st.markdown("**📈 Visualization**")
-            weights_for_chart_data = {
-                k.replace('C', '').replace('_', ' '): v 
-                for k, v in current_weights_for_summary.items()
-            }
-            if weights_for_chart_data:
-                weights_for_chart = pd.DataFrame(list(weights_for_chart_data.items()), columns=['Criterion', 'Weight'])
-                st.bar_chart(weights_for_chart.set_index('Criterion'), height=250)
-            else:
-                st.caption("No data for chart.")
-
-
-        with summary_col3:
-            st.markdown("**📊 Statistics**")
-            # ... (logika metric tetap sama, gunakan current_weights_for_summary dan total_weight_val) ...
-            # status_normalized = validate_weights(current_weights_for_summary) # OLD way
-            status_normalized = st.session_state.custom_weights_are_normalized # NEW way using flag
-
-            if status_normalized: # Check our flag
-                st.metric("Total Normalized Weight", f"{total_weight_val:.3f}")
-                st.metric("Total Percentage", f"{total_weight_val*100:.1f}%")
-                st.success("✅ Normalized")
-            else:
-                st.metric("Sum of Ratings", f"{int(total_weight_val)}") # Show sum of 1-5
-                st.warning("⚠️ Not Normalized")
-            
-            weights_values_list = list(current_weights_for_summary.values()) if current_weights_for_summary else []
-            if weights_values_list:
-                st.metric("Highest", f"{max(weights_values_list):.3f}")
-                st.metric("Lowest", f"{min(weights_values_list):.3f}")
-                st.metric("Average", f"{np.mean(weights_values_list):.3f}")
-
-        # Normalization section
-        if not st.session_state.custom_weights_are_normalized: # Show if flag is False
-            st.markdown("### 🔄 Weight Normalization")
-            st.warning(f"⚠️ Current sum of ratings is {int(total_weight_val)}. For proper analysis, weights should sum to 1.0.")
-            
-            norm_col1, norm_col2 = st.columns([1, 3])
-            with norm_col1:
-                if st.button("🔄 Normalize Weights", type="primary", use_container_width=True):
-                    normalized_weights = normalize_weights(st.session_state.raw_custom_ratings)
-                    st.session_state.weights = normalized_weights
-                    st.session_state.custom_weights_are_normalized = True # SET FLAG
-                    st.success("✅ Weights have been normalized!")
-                    st.rerun()
-            with norm_col2:
-                st.info("Normalization will proportionally adjust all ratings so they sum to exactly 1.0.")
-    
-    # Action buttons section
-    st.markdown("---")
-    # ... (tombol actions tetap sama, pastikan mereka menggunakan st.session_state.weights dan mungkin memeriksa st.session_state.custom_weights_are_normalized jika relevan, misal untuk "Save") ...
-    button_col1, button_col2 = st.columns(2)
-
-    with button_col1:
-        if st.button("💾 Save Weights", type="primary", use_container_width=True):
-            if st.session_state.weights:
-                # Check if custom weights are unnormalized before saving
-                if st.session_state.weight_method == 'custom' and not st.session_state.custom_weights_are_normalized:
-                    st.warning("⚠️ Saving unnormalized custom ratings. Consider normalizing first.")
-                # Here you would typically save to database or file
-                st.success("✅ Weights saved successfully! (simulation)")
-            else:
-                st.error("❌ No weights to save")
-
-    with button_col2:
-        if st.button("➡️ Continue", type="primary", use_container_width=True):
-            # For "Continue", weights MUST be normalized (sum to 1)
-            is_valid_for_continue = validate_weights(st.session_state.weights)
-            # Additionally, if in custom mode, ensure our flag also says it's normalized
-            if st.session_state.weight_method == 'custom':
-                is_valid_for_continue = is_valid_for_continue and st.session_state.custom_weights_are_normalized
-
-            if st.session_state.weights and is_valid_for_continue:
-                st.success("✅ Proceeding to analysis with current weights...")
-            elif not st.session_state.weights:
-                 st.error("❌ No weights configured. Please set weights first.")
-            else: 
-                st.error("❌ Please ensure custom weights are normalized (sum to 1.0) before continuing.")
