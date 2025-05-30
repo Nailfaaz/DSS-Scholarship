@@ -3,7 +3,7 @@ import streamlit as st
 
 # ---------------- page modules -----------------
 from pages.Page1_Upload import upload_tab
-from pages.Page2_Weight import criteria_tab
+from pages.Page2_Weight import weight_tab
 # from pages.Page3_Scoring import scoring_tab
 
 # ------------ App configuration ---------------
@@ -30,7 +30,7 @@ st.title("Undergraduate Scholarship DSS")
 # ----------------- Tabs -----------------------
 tabs = st.tabs([
     "1. Upload / Choose Data",
-    "2. Review Data",
+    "2. Weight Criteria",
     # "3. Scoring & Results",
 ])
 
@@ -38,7 +38,4 @@ with tabs[0]:
     upload_tab()
 
 with tabs[1]:
-    criteria_tab()
-
-# with tabs[2]:
-#     scoring_tab()
+    weight_tab()
