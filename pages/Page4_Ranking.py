@@ -1,44 +1,58 @@
-import streamlit as st
-import pandas as pd
+# pages/Page4_Ranking.py
+"""
+Tab 4 – Final Scholarship Ranking with BORDA Method
+
+Flow:
+1. Load results from SAW, WP, and TOPSIS scoring methods.
+2. Compute ranks for each method (higher score → higher rank).
+3. Calculate BORDA score by summing inverted ranks.
+4. Display and save the final BORDA ranking table.
+"""
+
 import os
+from pathlib import Path
+import pandas as pd
+import streamlit as st
 
-def ranking_tab():
-    st.subheader("🏆 Ranking Akhir Beasiswa - Metode BORDA")
+# ---------- Constants ----------
+BASE_DIR = Path(__file__).parent.parent
+RESULT_DIR = BASE_DIR / "data" / "result"
+RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Dapatkan direktori saat ini dan direktori root
-    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-    ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, os.pardir))
-    RESULT_DIR = os.path.join(ROOT_DIR, "data", "result")
-    os.makedirs(RESULT_DIR, exist_ok=True)
+PATH_SAW = RESULT_DIR / "saw_result.csv"
+PATH_WP = RESULT_DIR / "wp_result.csv"
+PATH_TOPSIS = RESULT_DIR / "topsis_result.csv"
+PATH_BORDA = RESULT_DIR / "borda_result.csv"
 
-    # Path ke hasil masing-masing metode
-    path_saw = os.path.join(RESULT_DIR, "saw_result.csv")
-    path_wp = os.path.join(RESULT_DIR, "wp_result.csv")
-    path_topsis = os.path.join(RESULT_DIR, "topsis_result.csv")
+# ---------- Main Tab Function ----------
 
-    # Pastikan semua file ada
-    if not (os.path.exists(path_saw) and os.path.exists(path_wp) and os.path.exists(path_topsis)):
-        st.error("Hasil dari SAW, WP, dan TOPSIS belum lengkap. Silakan lakukan skoring terlebih dahulu.")
+def ranking_tab() -> None:
+    st.subheader("🏆 Final Scholarship Ranking - BORDA Method")
+
+    # Check if all required scoring result files exist
+    if not (PATH_SAW.exists() and PATH_WP.exists() and PATH_TOPSIS.exists()):
+        st.error("SAW, WP, and TOPSIS results are incomplete. Please run scoring first.")
         return
 
-    # Load hasil dari ketiga metode
-    df_saw = pd.read_csv(path_saw)[["ID", "Skor_SAW"]]
-    df_wp = pd.read_csv(path_wp)[["ID", "Skor_WP"]]
-    df_topsis = pd.read_csv(path_topsis)[["ID", "Skor_TOPSIS"]]
+    # Load score results
+    df_saw = pd.read_csv(PATH_SAW)[["ID", "SAW_Score"]]
+    df_wp = pd.read_csv(PATH_WP)[["ID", "WP_Score"]]
+    df_topsis = pd.read_csv(PATH_TOPSIS)[["ID", "TOPSIS_Score"]]
 
-    # Hitung ranking (semakin tinggi skor, ranking makin tinggi)
-    df_saw["Rank_SAW"] = df_saw["Skor_SAW"].rank(ascending=False, method="min")
-    df_wp["Rank_WP"] = df_wp["Skor_WP"].rank(ascending=False, method="min")
-    df_topsis["Rank_TOPSIS"] = df_topsis["Skor_TOPSIS"].rank(ascending=False, method="min")
+    # Compute ranks (higher score → better rank, rank 1 is best)
+    df_saw["Rank_SAW"] = df_saw["SAW_Score"].rank(ascending=False, method="min")
+    df_wp["Rank_WP"] = df_wp["WP_Score"].rank(ascending=False, method="min")
+    df_topsis["Rank_TOPSIS"] = df_topsis["TOPSIS_Score"].rank(ascending=False, method="min")
 
-    # Gabungkan ranking
-    df_rank = df_saw[["ID", "Rank_SAW"]].merge(
-        df_wp[["ID", "Rank_WP"]], on="ID"
-    ).merge(
-        df_topsis[["ID", "Rank_TOPSIS"]], on="ID"
+
+    # Merge ranks into single DataFrame
+    df_rank = (
+        df_saw[["ID", "Rank_SAW"]]
+        .merge(df_wp[["ID", "Rank_WP"]], on="ID")
+        .merge(df_topsis[["ID", "Rank_TOPSIS"]], on="ID")
     )
 
-    # Hitung skor BORDA (semakin rendah rank, semakin tinggi skor)
+    # Calculate BORDA score (higher BORDA score is better)
     total_participants = len(df_rank)
     df_rank["Borda_Score"] = (
         (total_participants - df_rank["Rank_SAW"]) +
@@ -46,21 +60,21 @@ def ranking_tab():
         (total_participants - df_rank["Rank_TOPSIS"])
     )
 
-    # Urutkan berdasarkan skor BORDA tertinggi
+    # Sort descending by BORDA score
     df_rank_sorted = df_rank.sort_values(by="Borda_Score", ascending=False).reset_index(drop=True)
 
-    st.markdown("### 📊 Tabel Ranking Akhir (BORDA)")
+    # Display ranking table
+    st.markdown("### 📊 Final Ranking Table (BORDA)")
     st.dataframe(df_rank_sorted, use_container_width=True)
 
-    # Simpan ke CSV
-    borda_path = os.path.join(RESULT_DIR, "borda_result.csv")
-    df_rank_sorted.to_csv(borda_path, index=False)
+    # Save BORDA results to CSV
+    df_rank_sorted.to_csv(PATH_BORDA, index=False)
 
-    # Tombol download
+    # Download button for BORDA result
     csv_borda = df_rank_sorted.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="⬇️ Download Hasil BORDA",
+        label="⬇️ Download BORDA Result",
         data=csv_borda,
         file_name="borda_result.csv",
-        mime="text/csv"
+        mime="text/csv",
     )

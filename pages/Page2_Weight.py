@@ -1,173 +1,213 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
+# pages/Page2_WeightConfig.py
+"""
+Tab 2 – Weight Configuration
+
+Flow:
+1. Load default weights from CSV or fallback to predefined.
+2. Show loaded weights with normalized values and descriptions.
+3. Allow manual custom weight input via form.
+4. Normalize custom weights and save option.
+"""
+
 import os
 import re
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict
 
-# --- Konstanta ---
-DEFAULT_WEIGHT_FILE_PATH = "data/weight/weight_default.csv"
-CUSTOM_WEIGHT_SAVE_PATH = "data/weight/weight_custom.csv"
+import pandas as pd
+import streamlit as st
 
-CRITERION_DESCRIPTIONS = {
-    'C1_GPA': 'Grade Point Average - Academic performance indicator',
-    'C2_Certificates': 'Academic certificates and achievements',
-    'C3_ParentIncomeIDR': 'Parent income in Indonesian Rupiah (financial need)',
-    'C4_Dependents': 'Number of family dependents',
-    'C5_OrgScore': 'Organizational involvement score',
-    'C6_VolunteerEvents': 'Volunteer activities and community service',
-    'C7_LetterScore': 'Recommendation letter quality score',
-    'C8_InterviewScore': 'Interview performance score',
-    'C9_DocComplete': 'Document completeness score',
-    'C10_OnTime': 'Application submission timeliness'
+# ---------- Constants ----------
+BASE_DIR = Path(__file__).parent.parent
+DEFAULT_WEIGHT_PATH = BASE_DIR / "data" / "weight" / "weight_default.csv"
+CUSTOM_WEIGHT_SAVE_PATH = BASE_DIR / "data" / "weight" / "weight_custom.csv"
+
+CRITERION_DESCRIPTIONS: Dict[str, str] = {
+    "C1_GPA": "Grade Point Average - Academic performance indicator",
+    "C2_Certificates": "Academic certificates and achievements",
+    "C3_ParentIncomeIDR": "Parent income in Indonesian Rupiah (financial need)",
+    "C4_Dependents": "Number of family dependents",
+    "C5_OrgScore": "Organizational involvement score",
+    "C6_VolunteerEvents": "Volunteer activities and community service",
+    "C7_LetterScore": "Recommendation letter quality score",
+    "C8_InterviewScore": "Interview performance score",
+    "C9_DocComplete": "Document completeness score",
+    "C10_OnTime": "Application submission timeliness",
 }
+
 CRITERIA_LIST = list(CRITERION_DESCRIPTIONS.keys())
-FALLBACK_WEIGHTS = {k: 0.1 for k in CRITERIA_LIST}
+FALLBACK_WEIGHTS: Dict[str, float] = {k: 0.1 for k in CRITERIA_LIST}
 RATING_OPTIONS = [1, 2, 3, 4, 5]
 
-# --- Utility Functions ---
+# ---------- Helper Functions ----------
 
 def format_label(code: str) -> str:
-    return re.sub(r'C\d+_?', '', code).replace('_', ' ')
+    """
+    Convert criterion code to human-readable label.
+    Example: 'C1_GPA' -> 'GPA'
+    """
+    label = re.sub(r"C\d+_?", "", code).replace("_", " ")
+    return label.strip()
 
 def validate_weights(weights: Dict[str, float]) -> bool:
-    return abs(sum(weights.values()) - 1.0) < 1e-3 if weights else False
+    """Validate that sum of weights is approximately 1.0."""
+    if not weights:
+        return False
+    return abs(sum(weights.values()) - 1.0) < 1e-3
 
 def normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    """Normalize weights so their sum equals 1."""
     total = sum(weights.values())
-    return {k: v / total for k, v in weights.items()} if total > 0 else weights
+    if total > 0:
+        return {k: v / total for k, v in weights.items()}
+    return weights
 
-# --- CSV Loading Function ---
-
-def load_weights_from_csv(file_path: str) -> Dict[str, float]:
-    if not os.path.exists(file_path):
-        st.info(f"File not found: {file_path}. Using fallback weights.")
+def load_weights_from_csv(filepath: Path) -> Dict[str, float]:
+    """Load weights from CSV file, fallback if not found or invalid."""
+    if not filepath.exists():
+        st.info(f"File not found: {filepath}. Using fallback weights.")
         return FALLBACK_WEIGHTS
 
     try:
-        df = pd.read_csv(file_path, encoding='utf-8-sig')
-        if df.empty or len(df) == 0:
-            st.warning(f"CSV file is empty: {file_path}. Using fallback.")
+        df = pd.read_csv(filepath, encoding="utf-8-sig")
+        if df.empty:
+            st.warning(f"CSV file is empty: {filepath}. Using fallback weights.")
             return FALLBACK_WEIGHTS
 
-        weights = df.iloc[0].to_dict()
-        cleaned_weights = {}
+        weights_row = df.iloc[0].to_dict()
+        weights: Dict[str, float] = {}
 
-        for criterion in CRITERIA_LIST:
+        for crit in CRITERIA_LIST:
             try:
-                cleaned_weights[criterion] = float(weights[criterion])
+                weights[crit] = float(weights_row[crit])
             except (KeyError, ValueError):
-                st.warning(f"Invalid or missing value for {criterion}. Using fallback.")
+                st.warning(f"Invalid or missing weight for {crit}. Using fallback weights.")
                 return FALLBACK_WEIGHTS
 
-        extras = set(weights.keys()) - set(CRITERIA_LIST)
+        extras = set(weights_row.keys()) - set(CRITERIA_LIST)
         if extras:
-            st.info(f"Extra columns ignored: {extras}")
+            st.info(f"Ignored extra columns: {extras}")
 
-        st.success(f"✅ Weights loaded from: {file_path}")
-        return cleaned_weights
+        st.success(f"✅ Weights loaded from {filepath}")
+        return weights
 
     except Exception as e:
         st.error(f"Failed to load CSV: {e}. Using fallback weights.")
         return FALLBACK_WEIGHTS
 
-# --- Display Functions ---
-
-def show_weights_table(weights: Dict[str, float], normalized_weights: Dict[str, float], title: str = "Weights"):
+def show_weights_table(weights: Dict[str, float], normalized: Dict[str, float], title: str = "Weights") -> None:
+    """Display weights with normalized values and descriptions in a table."""
     st.markdown(f"### 📊 {title}")
-    df = pd.DataFrame([
+    data = [
         {
             "Criterion": crit,
-            "Weight": f"{w:.3f}" if w < 1 else str(w),
-            "Normalized Weight": f"{normalized_weights.get(crit, 0):.3f}" if normalized_weights else "N/A",
-            "Description": CRITERION_DESCRIPTIONS.get(crit, "N/A")
-        } for crit, w in weights.items()
-    ])
+            "Weight": f"{weights[crit]:.3f}" if weights[crit] < 1 else str(weights[crit]),
+            "Normalized Weight": f"{normalized.get(crit, 0):.3f}" if normalized else "N/A",
+            "Description": CRITERION_DESCRIPTIONS.get(crit, "N/A"),
+        }
+        for crit in CRITERIA_LIST
+    ]
+    df = pd.DataFrame(data)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-    if normalized_weights:
-        if validate_weights(normalized_weights):
+    if normalized:
+        if validate_weights(normalized):
             st.success("✅ Weights are normalized (≈ 1.0)")
         else:
-            st.warning(f"⚠️ Weights sum = {sum(weights.values()):.3f} ≠ 1.0")
-        
-def display_action_buttons():
-    """Menampilkan tombol aksi lanjutan jika bobot sudah dimuat."""
-    col1, col2 = st.columns([1, 1])
+            st.warning(f"⚠️ Sum of weights = {sum(weights.values()):.3f} ≠ 1.0")
+
+def display_action_buttons() -> None:
+    """Display save and re-normalize buttons if weights loaded."""
+    col1, col2 = st.columns(2)
+
     with col1:
         if st.button("💾 Save Weights as CSV", use_container_width=True, key="save_weights_btn"):
-            if "weights" in st.session_state:
-                weights_df = pd.DataFrame([st.session_state.custom_normalized_weights])
+            if "weights" in st.session_state and "custom_normalized_weights" in st.session_state:
+                weights_df = pd.DataFrame([st.session_state["custom_normalized_weights"]])
                 weights_df.to_csv(CUSTOM_WEIGHT_SAVE_PATH, index=False)
                 st.success(f"✅ Weights saved to {CUSTOM_WEIGHT_SAVE_PATH}")
             else:
-                st.warning("⚠️ No weights to save. Please load or input weights first.")
+                st.warning("⚠️ No weights to save. Load or input weights first.")
+
     with col2:
         if st.button("🔄 Normalize Again", use_container_width=True, key="re_normalize_btn"):
             if "weights" in st.session_state:
-                st.session_state.custom_normalized_weights = normalize_weights(st.session_state.weights)
+                st.session_state["custom_normalized_weights"] = normalize_weights(st.session_state["weights"])
                 st.success("✅ Weights normalized again.")
 
+# ---------- UI Functions ----------
 
-# --- Main UI Handlers ---
+def default_weights_ui() -> None:
+    """UI for loading and displaying default weights from CSV file."""
+    st.info("🔍 Load weights from file or fallback to default weights.")
 
-def default_weights_ui():
-    st.info("🔍 Load weights from file or use fallback.")
-
-    path = st.text_input("CSV File Path", value=DEFAULT_WEIGHT_FILE_PATH)
+    path_input = st.text_input("CSV File Path", value=str(DEFAULT_WEIGHT_PATH))
     if st.button("🔄 Load Weights"):
-        weights = load_weights_from_csv(path)
+        weights = load_weights_from_csv(Path(path_input))
         st.session_state["weights"] = weights
         st.session_state["weights_loaded"] = True
 
     if st.session_state.get("weights_loaded"):
         weights = st.session_state.get("weights", FALLBACK_WEIGHTS)
-        is_norm = validate_weights(weights)
-        show_weights_table(weights, normalize_weights(weights), title="Default Weights")
+        normalized = normalize_weights(weights)
+        show_weights_table(weights, normalized, title="Default Weights")
 
-def display_custom_weights_config():
-    """Menampilkan UI untuk konfigurasi bobot kustom secara manual."""
-    st.info("✏️ **Custom Weights Mode**: Atur bobot/rating kriteria secara manual berdasarkan preferensi pengguna atau kebijakan institusi.")
-    
+def custom_weights_ui() -> None:
+    """UI for manual custom weight configuration."""
+    st.info("✏️ **Custom Weights Mode**: Set weights manually.")
+
     st.markdown("### 🛠️ Custom Weight Configuration")
 
-    custom_weights = {}
+    custom_weights: Dict[str, int] = {}
+
     with st.form("custom_weights_form"):
         col1, col2 = st.columns(2)
-        with col1:
-            for crit in CRITERIA_LIST[:5]:
-                selected_value = st.radio(f"**{format_label(crit)}** - {CRITERION_DESCRIPTIONS.get(crit, '')}", RATING_OPTIONS, key=f"rating_{crit}", horizontal=True)
-                custom_weights[crit] = selected_value
-        
-        with col2:
-            for crit in CRITERIA_LIST[5:]:
-                selected_value = st.radio(f"**{format_label(crit)}** - {CRITERION_DESCRIPTIONS.get(crit, '')}", RATING_OPTIONS, key=f"rating_{crit}", horizontal=True)
-                custom_weights[crit] = selected_value
+
+        for crit in CRITERIA_LIST[:5]:
+            custom_weights[crit] = st.radio(
+                f"**{format_label(crit)}** - {CRITERION_DESCRIPTIONS.get(crit, '')}",
+                RATING_OPTIONS,
+                key=f"rating_{crit}",
+                horizontal=True,
+            )
+
+        for crit in CRITERIA_LIST[5:]:
+            custom_weights[crit] = st.radio(
+                f"**{format_label(crit)}** - {CRITERION_DESCRIPTIONS.get(crit, '')}",
+                RATING_OPTIONS,
+                key=f"rating_{crit}",
+                horizontal=True,
+            )
 
         submitted = st.form_submit_button("✅ Submit Custom Ratings")
         if submitted:
-            st.session_state.weights = custom_weights
-            st.session_state.custom_normalized_weights = normalize_weights(custom_weights)
+            st.session_state["weights"] = custom_weights
+            st.session_state["custom_normalized_weights"] = normalize_weights(custom_weights)
             st.success("Custom ratings submitted and normalized!")
-    
+
     if "custom_normalized_weights" in st.session_state:
-        show_weights_table(st.session_state.weights, st.session_state.custom_normalized_weights, title="Custom Weights")
+        show_weights_table(
+            st.session_state["weights"],
+            st.session_state["custom_normalized_weights"],
+            title="Custom Weights",
+        )
         display_action_buttons()
 
-# --- Run ---
-def weight_tab():
-    """Menampilkan seluruh tab untuk konfigurasi bobot (default & custom)."""
-    st.title("🎯 Weight Configuration")
-    st.markdown("Atur bobot atau rating masing-masing kriteria yang akan digunakan dalam proses penilaian.")
+# ---------- Main Tab Function ----------
 
-    st.session_state.weight_method = st.radio(
-        "Pilih mode konfigurasi bobot:",
+def weight_tab() -> None:
+    """Main weight configuration tab."""
+    st.title("🎯 Weight Configuration")
+    st.markdown("Set or adjust the weight or rating for each criterion used in the evaluation.")
+
+    st.session_state["weight_method"] = st.radio(
+        "Choose weight configuration mode:",
         options=["Default Weights", "Custom Weights"],
         horizontal=True,
-        key="weight_mode_radio"
+        key="weight_mode_radio",
     )
 
-    if st.session_state.weight_method == "Default Weights":
+    if st.session_state["weight_method"] == "Default Weights":
         default_weights_ui()
-    elif st.session_state.weight_method == "Custom Weights":
-        display_custom_weights_config()
+    else:
+        custom_weights_ui()
