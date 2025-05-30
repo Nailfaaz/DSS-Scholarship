@@ -160,14 +160,14 @@ def weight_tab():
     st.title("🎯 Weight Configuration")
     st.markdown("Atur bobot atau rating masing-masing kriteria yang akan digunakan dalam proses penilaian.")
 
-    weight_mode = st.radio(
+    st.session_state.weight_method = st.radio(
         "Pilih mode konfigurasi bobot:",
         options=["Default Weights", "Custom Weights"],
         horizontal=True,
         key="weight_mode_radio"
     )
 
-    if weight_mode == "Default Weights":
+    if st.session_state.weight_method == "Default Weights":
         default_weights_ui()
-    elif weight_mode == "Custom Weights":
+    elif st.session_state.weight_method == "Custom Weights":
         display_custom_weights_config()

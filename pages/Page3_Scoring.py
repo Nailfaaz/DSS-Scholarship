@@ -21,7 +21,7 @@ def scoring_tab():
     df = pd.read_csv(PREPROCESSED_PATH)
 
     # Pilih path bobot berdasarkan metode
-    if st.session_state.get("weight_method") == "custom":
+    if st.session_state.get("weight_method") == "Custom Weights":
         WEIGHT_PATH = os.path.join(ROOT_DIR, "data", "weight", "weight_custom.csv")
     else:
         WEIGHT_PATH = os.path.join(ROOT_DIR, "data", "weight", "weight_default.csv")
