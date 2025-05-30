@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import io
 
 def scoring_tab():
     st.subheader("🎯 Skoring Beasiswa")
@@ -80,6 +81,14 @@ def scoring_tab():
             st.dataframe(df_saw[["ID", "Skor_SAW"]].reset_index(drop=True), use_container_width=True)
             save_result("SAW", df_saw)
 
+            csv_saw = df_saw.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Download Hasil SAW",
+                data=csv_saw,
+                file_name='saw_result.csv',
+                mime='text/csv'
+            )
+
         if use_wp:
             st.markdown("#### 🔹 WP Result")
             wp_matrix = features.replace(0, 1e-6)
@@ -93,6 +102,14 @@ def scoring_tab():
 
             st.dataframe(df_wp[["ID", "Skor_WP"]].reset_index(drop=True), use_container_width=True)
             save_result("WP", df_wp)
+
+            csv_wp = df_wp.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Download Hasil WP",
+                data=csv_wp,
+                file_name='wp_result.csv',
+                mime='text/csv'
+            )
 
         if use_topsis:
             st.markdown("#### 🔹 TOPSIS Result")
@@ -113,6 +130,14 @@ def scoring_tab():
 
             st.dataframe(df_topsis[["ID", "Skor_TOPSIS"]].reset_index(drop=True), use_container_width=True)
             save_result("TOPSIS", df_topsis)
+
+            csv_topsis = df_topsis.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Download Hasil TOPSIS",
+                data=csv_topsis,
+                file_name='topsis_result.csv',
+                mime='text/csv'
+            )
 
     else:
         st.info("Silakan pilih setidaknya satu metode untuk menghitung skor.")

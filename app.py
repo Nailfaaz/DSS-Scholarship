@@ -5,6 +5,7 @@ import streamlit as st
 from pages.Page1_Upload import upload_tab
 from pages.Page2_Weight import weight_tab
 from pages.Page3_Scoring import scoring_tab
+from pages.Page4_Ranking import ranking_tab
 
 # ------------ App configuration ---------------
 st.set_page_config(
@@ -32,6 +33,7 @@ tabs = st.tabs([
     "1. Upload / Choose Data",
     "2. Weight Criteria",
     "3. Scoring & Results",
+    "4. BORDA Ranking",
 ])
 
 with tabs[0]:
@@ -42,3 +44,6 @@ with tabs[1]:
 
 with tabs[2]:
     scoring_tab()
+
+with tabs[3]:
+    ranking_tab()
