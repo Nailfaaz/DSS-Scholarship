@@ -1,92 +1,44 @@
-import os
-import pandas as pd
+# app.py  – tabs only, zero sidebar
 import streamlit as st
 
-# Constants
-data_dir = os.path.join(os.getcwd(), "spk", "data") if "spk" in os.getcwd() else "data"
+# ---------------- page modules -----------------
+from pages.Page1_Upload import upload_tab
+from pages.Page2_Weight import criteria_tab
+# from pages.Page3_Scoring import scoring_tab
 
-# --- Tab functions ---
-def upload_tab():
-    st.header("1. Upload / Choose Data")
-    st.write("Select an existing dataset or upload a new one.")
+# ------------ App configuration ---------------
+st.set_page_config(
+    page_title="Undergraduate Scholarship DSS",
+    layout="wide",
+    initial_sidebar_state="collapsed",  # start collapsed
+)
 
-    # List existing CSVs
-    try:
-        files = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
-    except FileNotFoundError:
-        files = []
-    files.insert(0, "-- Select --")
-    choice = st.selectbox("Choose a dataset:", files)
+# ------ 🔒 Hide sidebar & hamburger -----------
+HIDE_SIDEBAR = """
+<style>
+/* Completely remove the sidebar */
+[data-testid="stSidebar"] {display: none !important;}
+/* Hide the hamburger (collapsed sidebar) icon */
+[data-testid="collapsedControl"] {display: none !important;}
+</style>
+"""
+st.markdown(HIDE_SIDEBAR, unsafe_allow_html=True)
 
-    uploaded = st.file_uploader("Or upload your own CSV", type=["csv"])
+# ----------------- Title ----------------------
+st.title("Undergraduate Scholarship DSS")
 
-    if uploaded is not None:
-        df = pd.read_csv(uploaded)
-        st.session_state.df = df
-        st.success(f"Loaded uploaded dataset ({len(df)} rows)")
-    elif choice != "-- Select --":
-        path = os.path.join(data_dir, choice)
-        df = pd.read_csv(path)
-        st.session_state.df = df
-        st.success(f"Loaded '{choice}' ({len(df)} rows)")
-    else:
-        st.info("Please select a dataset from the dropdown or upload one.")
+# ----------------- Tabs -----------------------
+tabs = st.tabs([
+    "1. Upload / Choose Data",
+    "2. Review Data",
+    # "3. Scoring & Results",
+])
 
+with tabs[0]:
+    upload_tab()
 
-def preprocess_tab():
-    st.header("2. Preprocessing")
-    st.write("Inspect and clean the loaded dataset.")
-    if "df" in st.session_state:
-        df = st.session_state.df
-        st.dataframe(df)
-        # TODO: add options to drop/mask missing values
-    else:
-        st.warning("No dataset loaded. Go to the first tab to load data.")
+with tabs[1]:
+    criteria_tab()
 
-
-def criteria_tab():
-    st.header("3. Define Criteria")
-    st.write("Set weights and directions for each criterion.")
-    # TODO: sliders for weights (sum to 1) and toggles for benefit/cost
-
-
-def run_tab():
-    st.header("4. Run & Results")
-    st.write("Execute the SAW algorithm and view rankings.")
-    if "df" not in st.session_state:
-        st.warning("No dataset loaded.")
-        return
-    # TODO: retrieve weights and benefit list
-    if st.button("Run SAW"):
-        # placeholder: stub
-        st.info("SAW run not yet implemented.")
-
-
-def export_tab():
-    st.header("5. Export Results")
-    st.write("Download the ranked results once available.")
-    if "df" in st.session_state:
-        # TODO: enable CSV/Excel download of results
-        st.info("Export functionality coming soon.")
-    else:
-        st.warning("No results to export.")
-
-
-def main():
-    st.set_page_config(page_title="Undergraduate Scholarship DSS", layout="wide")
-    st.title("Undergraduate Scholarship DSS")
-
-    tabs = st.tabs([
-        "Upload / Choose",
-        "Preprocessing",
-        "Define Criteria",
-        "Run & Results",
-        "Export"
-    ])
-
-    for tab, func in zip(tabs, [upload_tab, preprocess_tab, criteria_tab, run_tab, export_tab]):
-        with tab:
-            func()
-
-if __name__ == "__main__":
-    main()
+# with tabs[2]:
+#     scoring_tab()
