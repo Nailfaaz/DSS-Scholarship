@@ -6,8 +6,8 @@ import re
 from typing import Dict, List, Tuple
 
 # --- Konstanta dan Konfigurasi Dasar ---
-DEFAULT_WEIGHT_FILE_PATH = "data/weight/weight_default.csv" # Path default untuk file bobot
-CUSTOM_WEIGHT_SAVE_PATH = "data/weight/weight_custom.csv" # Path untuk menyimpan bobot kustom
+DEFAULT_WEIGHT_FILE_PATH = "./data/weight/weight_default.csv" # Path default untuk file bobot
+CUSTOM_WEIGHT_SAVE_PATH = "./data/weight/weight_custom.csv" # Path untuk menyimpan bobot kustom
 
 CRITERION_DESCRIPTIONS = {
     'C1_GPA': 'Grade Point Average - Academic performance indicator',
@@ -102,14 +102,11 @@ def display_weights_table_and_chart(
 
     with col_table:
         df_data = []
-        total_for_percentage = sum(weights_to_display.values()) if not is_normalized and sum(weights_to_display.values()) > 0 else 1.0
         
         for crit, w in weights_to_display.items():
-            percentage_val = (w / total_for_percentage * 100) if total_for_percentage != 0 else 0
             df_data.append({
                 'Criterion': crit,
                 'Weight': f"{w:.3f}" if isinstance(w, float) and w < 1 else str(w), # Tampilkan rating mentah sebagai int
-                'Percentage': f"{percentage_val:.1f}%" + (" (relative)" if not is_normalized and total_for_percentage != 1.0 else ""),
                 'Description': CRITERION_DESCRIPTIONS.get(crit, 'N/A')
             })
         weights_df = pd.DataFrame(df_data)
@@ -143,8 +140,7 @@ def display_default_weights_config():
 
     st.markdown("### 📂 File Configuration")
     col_file1, col_file2 = st.columns([3, 1])
-    
-    
+
     default_file_path_key = "default_weight_file_path_ui" # Key unik untuk text_input
     if default_file_path_key not in st.session_state:
         st.session_state[default_file_path_key] = DEFAULT_WEIGHT_FILE_PATH
@@ -162,34 +158,22 @@ def display_default_weights_config():
             with st.spinner("Loading default weights..."):
                 loaded_w = load_default_weights(st.session_state[default_file_path_key])
                 st.session_state.weights = loaded_w # Selalu update, bahkan jika fallback
-                if loaded_w and loaded_w != load_default_weights(""): # Cek jika bukan fallback karena file tidak ada/kosong
-                    # Cek apakah file yang dimuat benar-benar menghasilkan bobot yang valid dan bukan fallback
-                    # Ini agak rumit karena load_default_weights sendiri sudah mengembalikan fallback
-                    # Kita bisa asumsikan jika path ada dan file tidak kosong, maka itu sukses
+                st.session_state.default_weights_loaded = True
+                if loaded_w and loaded_w != load_default_weights(""):
                     if os.path.exists(st.session_state[default_file_path_key]) and os.path.getsize(st.session_state[default_file_path_key]) > 0:
-                         st.success("✅ Default weights loaded successfully from file!")
-                    # Pesan info/warning sudah ditangani di dalam load_default_weights
-    
-    # Inisialisasi bobot default jika belum ada (misalnya saat pertama kali tab dibuka)
-    if not st.session_state.get('weights') or st.session_state.weight_method == 'default':
-        # Jika weights kosong atau metode adalah default dan weights tidak sesuai dengan file path saat ini
-        # (misalnya, path diubah tapi belum diklik load), coba load.
-        current_file_path_in_ui = st.session_state.get(default_file_path_key, DEFAULT_WEIGHT_FILE_PATH)
-        # Hanya load jika belum ada weights atau jika file yang di-load sebelumnya berbeda
-        # Ini untuk menghindari reload terus menerus jika file tidak valid dan fallback digunakan
-        # Untuk simplisitas, kita load jika weights kosong di mode default
-        if not st.session_state.get('weights'):
-            st.session_state.weights = load_default_weights(current_file_path_in_ui)
+                        st.success("✅ Default weights loaded successfully from file!")
+                # Pesan info/warning sudah ditangani di dalam load_default_weights
 
-
-    if st.session_state.get('weights'):
-        # Bobot default dari file mungkin tidak selalu ternormalisasi, jadi kita cek saja
-        is_normalized_from_file = validate_weights(st.session_state.weights)
-        display_weights_table_and_chart(st.session_state.weights, is_normalized_from_file, title_prefix="Default")
-        if not is_normalized_from_file:
-            st.warning(f"⚠️ Default weights from file sum to {sum(st.session_state.weights.values()):.3f}. They may need review if intended for direct DSS use without normalization step elsewhere.")
-    else:
-        st.warning("No default weights currently loaded. Check file path or fallback definitions.")
+    # Tampilkan bobot dan aksi hanya jika sudah klik tombol load
+    if st.session_state.get("default_weights_loaded", False):
+        if st.session_state.get('weights'):
+            is_normalized_from_file = validate_weights(st.session_state.weights)
+            display_weights_table_and_chart(st.session_state.weights, is_normalized_from_file, title_prefix="Default")
+            if not is_normalized_from_file:
+                st.warning(f"⚠️ Default weights from file sum to {sum(st.session_state.weights.values()):.3f}. They may need review if intended for direct DSS use without normalization step elsewhere.")
+            display_action_buttons()
+        else:
+            st.warning("No default weights currently loaded. Check file path or fallback definitions.")
 
 def display_custom_weights_config():
     """Menampilkan UI untuk konfigurasi bobot kustom."""
@@ -274,19 +258,11 @@ def display_weight_summary_and_validation(current_weights: Dict[str, float], is_
         for criterion, weight_val in current_weights.items():
             is_raw_int_rating = isinstance(weight_val, int) and weight_val in RATING_OPTIONS and not is_normalized_flag
             display_val = str(weight_val) if is_raw_int_rating else f"{weight_val:.3f}"
-            
-            percentage = "N/A"
-            if is_normalized_flag:
-                percentage = f"{weight_val * 100:.1f}%"
-            elif total_weight_val > 0:
-                percentage = f"{(weight_val / total_weight_val * 100):.1f}% (raw)"
-            else:
-                percentage = "0.0% (raw)"
 
             summary_df_data.append({
                 'Criterion': format_criterion_label(criterion),
                 'Value/Weight': display_val,
-                'Percentage': percentage
+                'Description': CRITERION_DESCRIPTIONS.get(criterion, 'N/A'),
             })
         summary_df = pd.DataFrame(summary_df_data)
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
@@ -322,7 +298,7 @@ def display_weight_summary_and_validation(current_weights: Dict[str, float], is_
 def display_action_buttons():
     """Menampilkan tombol aksi utama (Save, Continue)."""
     st.markdown("---")
-    st.markdown("### 🎬 Actions")
+    st.info("Jika sudah yakin, simpan bobot yang telah diatur untuk melanjutkan ke langkah berikutnya.")
     
     # Membuat direktori jika belum ada (untuk penyimpanan CSV)
     if not os.path.exists("data/weight"):
@@ -331,54 +307,29 @@ def display_action_buttons():
         except OSError as e:
             st.error(f"Gagal membuat direktori 'data/weight': {e}. Penyimpanan CSV mungkin gagal.")
 
-
-    col_save, col_continue = st.columns(2)
-
-    with col_save:
-        if st.button("💾 Save Weights", type="primary", use_container_width=True, key="save_weights_btn"):
-            if st.session_state.weights:
-                if st.session_state.weight_method == 'custom' and not st.session_state.custom_weights_are_normalized:
-                    st.warning("⚠️ Saving unnormalized custom ratings. Consider normalizing first for DSS calculations.")
-                
-                try:
-                    # Simpan sebagai DataFrame dengan satu baris, di mana header adalah kriteria
-                    df_to_save = pd.DataFrame([st.session_state.weights])
-                    save_path = CUSTOM_WEIGHT_SAVE_PATH if st.session_state.weight_method == 'custom' else DEFAULT_WEIGHT_FILE_PATH # Atau path lain untuk default yang diedit
-                    
-                    # Jika menyimpan bobot default (misalnya setelah diedit atau hanya ingin menyimpan ulang),
-                    # mungkin ingin path yang berbeda atau konfirmasi. Untuk saat ini, custom path.
-                    if st.session_state.weight_method == 'default':
-                        save_path = st.session_state.get("default_weight_file_path_ui", DEFAULT_WEIGHT_FILE_PATH)
-                        st.info(f"Menyimpan bobot default ke: {save_path}")
-
-
-                    df_to_save.to_csv(save_path, index=False)
-                    st.success(f"✅ Weights saved successfully to '{save_path}'! You can continue.")
-                except Exception as e:
-                    st.error(f"❌ Failed to save weights: {str(e)}")
-            else:
-                st.error("❌ No weights to save.")
-
-    with col_continue:
-        if st.button("➡️ Continue", type="primary", use_container_width=True, key="continue_btn"):
-            weights_are_valid_for_dss = validate_weights(st.session_state.weights)
+    if st.button("💾 Save Weights", type="primary", use_container_width=True, key="save_weights_btn"):
+        if st.session_state.weights:
+            if st.session_state.weight_method == 'custom' and not st.session_state.custom_weights_are_normalized:
+                st.warning("⚠️ Saving unnormalized custom ratings. Consider normalizing first for DSS calculations.")
             
-            if st.session_state.weight_method == 'custom':
-                # Untuk custom, harus ternormalisasi secara eksplisit melalui UI
-                weights_are_valid_for_dss = weights_are_valid_for_dss and st.session_state.custom_weights_are_normalized
-            # Untuk default, kita asumsikan jika validate_weights True, itu cukup,
-            # karena normalisasi mungkin terjadi di luar skrip ini atau memang disengaja.
+            try:
+                # Simpan sebagai DataFrame dengan satu baris, di mana header adalah kriteria
+                df_to_save = pd.DataFrame([st.session_state.weights])
+                save_path = CUSTOM_WEIGHT_SAVE_PATH if st.session_state.weight_method == 'custom' else DEFAULT_WEIGHT_FILE_PATH # Atau path lain untuk default yang diedit
+                
+                # Jika menyimpan bobot default (misalnya setelah diedit atau hanya ingin menyimpan ulang),
+                # mungkin ingin path yang berbeda atau konfirmasi. Untuk saat ini, custom path.
+                if st.session_state.weight_method == 'default':
+                    save_path = st.session_state.get("default_weight_file_path_ui", DEFAULT_WEIGHT_FILE_PATH)
+                    st.info(f"Menyimpan bobot default ke: {save_path}")
 
-            if st.session_state.weights and weights_are_valid_for_dss:
-                st.success("✅ Proceeding to analysis with current weights...")
-                # Logika navigasi atau pemrosesan selanjutnya bisa ditambahkan di sini
-            elif not st.session_state.weights:
-                st.error("❌ No weights configured. Please set weights first.")
-            else: # Bobot ada tapi tidak valid/siap untuk DSS
-                if st.session_state.weight_method == 'custom':
-                    st.error("❌ Custom weights are not normalized. Please normalize them first.")
-                else: # Default weights not summing to 1
-                    st.error(f"❌ Default weights are not normalized (sum to {sum(st.session_state.weights.values()):.3f}). Please review or ensure this is intended.")
+
+                df_to_save.to_csv(save_path, index=False)
+                st.success(f"✅ Weights saved successfully to '{save_path}'! You can continue.")
+            except Exception as e:
+                st.error(f"❌ Failed to save weights: {str(e)}")
+        else:
+            st.error("❌ No weights to save.")
 
 # --- Fungsi Utama Tab ---
 
@@ -434,5 +385,5 @@ def weight_tab():
         display_custom_weights_config()
 
     # Tombol aksi selalu ditampilkan
-    display_action_buttons()
+    # display_action_buttons()
 
